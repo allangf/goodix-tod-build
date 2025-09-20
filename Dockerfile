@@ -1,13 +1,7 @@
+# Minimal, clean Debian 13 (trixie) builder image
 FROM debian:trixie
 
-ARG LIBFPRINT_DSC_URL
-ARG GOODIX_REPO_URL
-ARG GOODIX_BRANCH
-
-ENV LIBFPRINT_DSC_URL=${LIBFPRINT_DSC_URL} \
-    GOODIX_REPO_URL=${GOODIX_REPO_URL} \
-    GOODIX_BRANCH=${GOODIX_BRANCH} \
-    DEBIAN_FRONTEND=noninteractive
+ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -51,3 +45,6 @@ WORKDIR /build
 
 COPY build.sh /build.sh
 RUN chmod +x /build.sh
+
+# Default command expects env vars provided by docker-compose
+CMD ["/build.sh"]

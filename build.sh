@@ -12,6 +12,12 @@ set -euo pipefail
 # Uploader key listed in the .dsc (Steve Langasek – Ubuntu)
 : "${UBUNTU_UPLOADER_KEY:=AC483F68DE728F43F2202FCA568D30F321B2133D}"
 
+# Optional: alternative key seen in the wild for the same maintainer
+: "${UBUNTU_UPLOADER_KEY_ALT:=5759F35001AA4A64}"
+
+# Optional: provide your own armored key file to ensure deterministic builds
+# export UBUNTU_UPLOADER_KEY_FILE=/keys/steve-langasek.asc
+
 # Suffix/Dist to harmonize with Debian 13 (trixie)
 : "${DIST_NAME:=trixie}"
 : "${LOCAL_SUFFIX:=~trixie1}"
@@ -39,25 +45,35 @@ info "DIST_NAME         = ${DIST_NAME}"
 info "LOCAL_SUFFIX      = ${LOCAL_SUFFIX}"
 
 mkdir -p /out
+mkdir -p /build
 cd /build
 
 # ========================= GPG / Keyrings utilities ==========================
-prepare_gnupg() { mkdir -p /root/.gnupg && chmod 700 /root/.gnupg; }
+prepare_gnupg() {
+  mkdir -p /root/.gnupg && chmod 700 /root/.gnupg
+  # Harden dirmngr for flaky corporate proxies / IPv6 issues
+  cat >/root/.gnupg/dirmngr.conf <<'EOF'
+keyserver hkps://keyserver.ubuntu.com
+keyserver hkp://keyserver.ubuntu.com:80
+keyserver hkps://keys.openpgp.org
+honor-http-proxy
+disable-ipv6
+EOF
+  chmod 600 /root/.gnupg/dirmngr.conf
+}
 
 import_uploader_key() {
   command -v gpg >/dev/null 2>&1 || return 1
 
-  local fp_main="${UBUNTU_UPLOADER_KEY:-AC483F68DE728F43F2202FCA568D30F321B2133D}"
-  local fp_alt="${UBUNTU_UPLOADER_KEY_ALT:-5759F35001AA4A64}"
+  local fp_main="${UBUNTU_UPLOADER_KEY}"
+  local fp_alt="${UBUNTU_UPLOADER_KEY_ALT:-}"
 
-  # Opcional: caminho para um .asc/.gpg local com a chave (build determinístico)
-  # export UBUNTU_UPLOADER_KEY_FILE=/keys/steve-langasek.asc
   local key_file="${UBUNTU_UPLOADER_KEY_FILE:-}"
 
   prepare_gnupg
 
   has_fpr() {
-    # match exato do fingerprint
+    # exact fingerprint match
     gpg --list-keys --with-colons 2>/dev/null | grep -q "^fpr:::::::::${fp_main}:$"
   }
 
@@ -66,41 +82,43 @@ import_uploader_key() {
     gpg --batch --keyserver "$ks" --recv-keys "0x${kid}" || return 1
   }
 
-  # 0) Se veio por arquivo, usa primeiro
+  # 0) If a local armored key is provided, import it first (deterministic builds)
   if [[ -n "$key_file" && -r "$key_file" ]]; then
     echo "==> Importing uploader key from file: $key_file"
     gpg --import "$key_file" || true
   fi
 
-  # Se já temos a chave exata, sai.
+  # If already present, we are done.
   if has_fpr; then return 0; fi
 
   echo "==> Importing uploader key(s) from keyservers…"
-  # 1) Ubuntu hkps/hkp
+  # 1) Ubuntu keyserver hkps/hkp
   recv_from "hkps://keyserver.ubuntu.com" "$fp_main" || true
   has_fpr && return 0
   recv_from "hkp://keyserver.ubuntu.com:80" "$fp_main" || true
   has_fpr && return 0
 
-  # 2) keys.openpgp.org (não publica UIDs sem consentimento, mas tenta)
+  # 2) keys.openpgp.org try (may omit UIDs without consent, but worth trying)
   recv_from "hkps://keys.openpgp.org" "$fp_main" || true
   has_fpr && return 0
 
-  # 3) Buscar por e-mail no keyserver do Ubuntu (traz todas as chaves do maintainer)
+  # 3) Search by email on Ubuntu keyserver (brings all keys for the maintainer)
   gpg --batch --keyserver hkps://keyserver.ubuntu.com --search-keys "steve.langasek@ubuntu.com" <<<'y' || true
   has_fpr && return 0
 
-  # 4) Tenta também a alternativa vista no seu log
-  recv_from "hkps://keyserver.ubuntu.com" "$fp_alt" || true
-  has_fpr && return 0
+  # 4) Try the alternative fingerprint we saw in logs
+  if [[ -n "$fp_alt" ]]; then
+    recv_from "hkps://keyserver.ubuntu.com" "$fp_alt" || true
+    has_fpr && return 0
+  fi
 
-  # 5) Fallback: baixa armorizado diretamente e importa
+  # 5) Fallback: fetch armored key directly and import
   echo "==> Fallback: fetching armored key for ${fp_main}"
   if curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x${fp_main}" | gpg --import; then
     has_fpr && return 0
   fi
 
-  # 6) Última cartada: index+get com fingerprint explícito
+  # 6) Last resort: index+get with fingerprint+wkd on Ubuntu server
   curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?fingerprint=on&op=get&search=0x${fp_main}" | gpg --import || true
   has_fpr
 }
@@ -118,6 +136,10 @@ fetch_src() {
     warn "dget not found; using dpkg-source without GPG verification."
     local dsc="$(basename "${LIBFPRINT_DSC_URL}")"
     run wget -q "${LIBFPRINT_DSC_URL}"
+    # Download required tarballs listed in the .dsc
+    awk '/^Files:/{f=1;next} f && NF{print $NF}' "${dsc}" | while read -r tar; do
+      [[ -f "$tar" ]] || wget -q "$(dirname "${LIBFPRINT_DSC_URL}")/${tar}"
+    done
     run dpkg-source -x "${dsc}"
     return
   fi
@@ -126,7 +148,7 @@ fetch_src() {
   if import_uploader_key && dget -x "${LIBFPRINT_DSC_URL}"; then
     return
   fi
-  die "Failed to verify .dsc GPG signature. To proceed without verification, run with DGET_NO_CHECK=1."
+  die "Failed to verify .dsc GPG signature. To proceed without verification, run with DGET_NO_CHECK=1 or provide UBUNTU_UPLOADER_KEY_FILE."
 }
 
 find_src_dir() {

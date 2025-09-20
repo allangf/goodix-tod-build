@@ -1,22 +1,26 @@
 services:
-  builder:
+  goodix-tod-builder:
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        LIBFPRINT_DSC_URL: "http://archive.ubuntu.com/ubuntu/pool/main/libf/libfprint/libfprint_1.94.7+tod1-0ubuntu4.dsc"
-        GOODIX_REPO_URL: "https://git.launchpad.net/libfprint-2-tod1-goodix"
-        GOODIX_BRANCH: "ubuntu/noble-devel"
-    container_name: goodix-tod-builder
+    image: goodix-tod-build-builder
+    environment:
+      # REQUIRED: .dsc pointing to Ubuntu libfprint +tod1
+      LIBFPRINT_DSC_URL: "http://archive.ubuntu.com/ubuntu/pool/main/libf/libfprint/libfprint_1.94.7+tod1-0ubuntu4.dsc"
+      # Goodix TOD plugin repo + preferred branch
+      GOODIX_REPO_URL: "https://git.launchpad.net/libfprint-2-tod1-goodix"
+      GOODIX_BRANCH: "ubuntu/noble-devel"
+      # Use 1 to skip .dsc signature verification (not recommended)
+      DGET_NO_CHECK: "0"
+      # Exact uploader key fingerprint that signed the .dsc
+      UBUNTU_UPLOADER_KEY: "AC483F68DE728F43F2202FCA568D30F321B2133D"
+      # Optional: provide a local armored key file (mounted below)
+      # UBUNTU_UPLOADER_KEY_FILE: "/keys/steve-langasek.asc"
+      DIST_NAME: "trixie"
+      LOCAL_SUFFIX: "~trixie1"
     volumes:
       - ./out:/out
-    environment:
-      # GPG verification of the .dsc (0 = verify, 1 = skip verification)
-      - DGET_NO_CHECK=${DGET_NO_CHECK:-0}
-      # Debianized version (defaults below can be overridden via .env)
-      - DEBIAN_DIST=${DEBIAN_DIST:-trixie}
-      - DEBIAN_REV=${DEBIAN_REV:-0}
-      - DEBIAN_LOCAL=${DEBIAN_LOCAL:-~trixie1}
-      # - DEBIAN_FORCE_VERSION=1:1.94.7+tod1-1~trixie1
-      - DEBIAN_FRONTEND=noninteractive
-    command: ["/bin/bash", "/build.sh"]
+      # Optional deterministic builds: drop steve-langasek.asc in ./keys
+      - ./keys:/keys:ro
+    pull_policy: build
+    tty: true
