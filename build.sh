@@ -214,7 +214,22 @@ build_core() {
   ensure_libudev_pc_vars
   normalize_version_changelog "${src_dir}"
 
-  ( cd "${src_dir}" && dpkg-buildpackage -us -uc -b )
+  (
+    cd "${src_dir}"
+    # NEW: pull core build-deps from debian/control (no need for deb-src when using ".")
+    apt-get update -qq
+    if ! apt-get -y build-dep .; then
+      warn "Could not auto-install all core build-deps from debian/control."
+      apt-get -s build-dep . || true
+      die "Missing core build-deps. See the list above."
+    fi
+
+    # Opcional: evitar rodar testes em ambientes headless
+    export DEB_BUILD_OPTIONS="${DEB_BUILD_OPTIONS:-} nocheck"
+
+    dpkg-buildpackage -us -uc -b
+  )
+
   find "${src_dir}/.." -maxdepth 1 -type f -name '*.deb' -exec cp -v {} /out/ \;
   log "[OK] Core packages copied to /out"
 }
