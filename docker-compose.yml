@@ -8,12 +8,9 @@ services:
       LIBFPRINT_DSC_URL: "http://archive.ubuntu.com/ubuntu/pool/main/libf/libfprint/libfprint_1.94.7+tod1-0ubuntu4.dsc"
       GOODIX_REPO_URL: "https://git.launchpad.net/libfprint-2-tod1-goodix"
       GOODIX_BRANCH: "ubuntu/noble-devel"
-      DGET_NO_CHECK: "0"
-      UBUNTU_UPLOADER_KEY: "AC483F68DE728F43F2202FCA568D30F321B2133D"
-      UBUNTU_UPLOADER_KEY_FILE: "/keys/steve-langasek.asc"
+      DGET_NO_CHECK: "0"   # keep signature verification ON
       DIST_NAME: "trixie"
       LOCAL_SUFFIX: "~trixie1"
     volumes:
       - ./out:/out
-      - ./keys:/keys:ro 
     tty: true

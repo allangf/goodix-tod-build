@@ -3,7 +3,12 @@ FROM debian:trixie
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# (Optional) allow overriding the key URL at build time:
+#   docker build --build-arg UPLOADER_KEY_URL="https://..." .
 ARG UPLOADER_KEY_URL="https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xAC483F68DE728F43F2202FCA568D30F321B2133D"
+
+# Set default uploader key fingerprint (matches the .dsc signature)
+ENV UBUNTU_UPLOADER_KEY=AC483F68DE728F43F2202FCA568D30F321B2133D
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -46,6 +51,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     test -s /keys/steve-langasek.asc && \
     rm -rf /var/lib/apt/lists/*
 
+# Point build.sh to the downloaded key by default
 ENV UBUNTU_UPLOADER_KEY_FILE=/keys/steve-langasek.asc
 
 WORKDIR /build
@@ -53,5 +59,5 @@ WORKDIR /build
 COPY build.sh /build.sh
 RUN chmod +x /build.sh
 
-# Default command expects env vars provided by docker-compose
+# Default command expects env vars provided by docker-compose (or use docker run -e)
 CMD ["/build.sh"]

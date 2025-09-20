@@ -89,38 +89,43 @@ import_uploader_key() {
   fi
 
   # If already present, we are done.
-  if has_fpr; then return 0; fi
+  if has_fpr; then
+    echo "==> Uploader key present in keyring: ${fp_main}"
+    return 0
+  fi
 
   echo "==> Importing uploader key(s) from keyservers…"
   # 1) Ubuntu keyserver hkps/hkp
   recv_from "hkps://keyserver.ubuntu.com" "$fp_main" || true
-  has_fpr && return 0
+  has_fpr && { echo "==> Uploader key present in keyring: ${fp_main}"; return 0; }
   recv_from "hkp://keyserver.ubuntu.com:80" "$fp_main" || true
-  has_fpr && return 0
+  has_fpr && { echo "==> Uploader key present in keyring: ${fp_main}"; return 0; }
 
   # 2) keys.openpgp.org try (may omit UIDs without consent, but worth trying)
   recv_from "hkps://keys.openpgp.org" "$fp_main" || true
-  has_fpr && return 0
+  has_fpr && { echo "==> Uploader key present in keyring: ${fp_main}"; return 0; }
 
   # 3) Search by email on Ubuntu keyserver (brings all keys for the maintainer)
   gpg --batch --keyserver hkps://keyserver.ubuntu.com --search-keys "steve.langasek@ubuntu.com" <<<'y' || true
-  has_fpr && return 0
+  has_fpr && { echo "==> Uploader key present in keyring: ${fp_main}"; return 0; }
 
   # 4) Try the alternative fingerprint we saw in logs
   if [[ -n "$fp_alt" ]]; then
     recv_from "hkps://keyserver.ubuntu.com" "$fp_alt" || true
-    has_fpr && return 0
+    has_fpr && { echo "==> Uploader key present in keyring: ${fp_main}"; return 0; }
   fi
 
   # 5) Fallback: fetch armored key directly and import
   echo "==> Fallback: fetching armored key for ${fp_main}"
   if curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x${fp_main}" | gpg --import; then
-    has_fpr && return 0
+    has_fpr && { echo "==> Uploader key present in keyring: ${fp_main}"; return 0; }
   fi
 
   # 6) Last resort: index+get with fingerprint+wkd on Ubuntu server
   curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?fingerprint=on&op=get&search=0x${fp_main}" | gpg --import || true
-  has_fpr
+  has_fpr && { echo "==> Uploader key present in keyring: ${fp_main}"; return 0; }
+
+  return 1
 }
 
 # ============================== Download source ===============================
@@ -284,7 +289,7 @@ if ! pkg-config --exists libudev && ! pkg-config --exists udev; then
 fi
 
 build_core "${SRC_DIR}"
-install_core_locals
+install_core_locals"
 clone_and_patch_goodix
 precheck_goodix_builddeps
 build_goodix
