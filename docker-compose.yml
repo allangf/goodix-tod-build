@@ -3,24 +3,17 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: goodix-tod-build-builder
+    image: goodix-tod-build
     environment:
-      # REQUIRED: .dsc pointing to Ubuntu libfprint +tod1
       LIBFPRINT_DSC_URL: "http://archive.ubuntu.com/ubuntu/pool/main/libf/libfprint/libfprint_1.94.7+tod1-0ubuntu4.dsc"
-      # Goodix TOD plugin repo + preferred branch
       GOODIX_REPO_URL: "https://git.launchpad.net/libfprint-2-tod1-goodix"
       GOODIX_BRANCH: "ubuntu/noble-devel"
-      # Use 1 to skip .dsc signature verification (not recommended)
       DGET_NO_CHECK: "0"
-      # Exact uploader key fingerprint that signed the .dsc
       UBUNTU_UPLOADER_KEY: "AC483F68DE728F43F2202FCA568D30F321B2133D"
-      # Optional: provide a local armored key file (mounted below)
-      # UBUNTU_UPLOADER_KEY_FILE: "/keys/steve-langasek.asc"
+      UBUNTU_UPLOADER_KEY_FILE: "/keys/steve-langasek.asc"
       DIST_NAME: "trixie"
       LOCAL_SUFFIX: "~trixie1"
     volumes:
       - ./out:/out
-      # Optional deterministic builds: drop steve-langasek.asc in ./keys
-      - ./keys:/keys:ro
-    pull_policy: build
+      - ./keys:/keys:ro 
     tty: true

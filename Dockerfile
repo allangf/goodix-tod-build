@@ -3,6 +3,8 @@ FROM debian:trixie
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+ARG UPLOADER_KEY_URL="https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xAC483F68DE728F43F2202FCA568D30F321B2133D"
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     ca-certificates \
@@ -39,7 +41,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     umockdev \
     wget && \
     mkdir -p /root/.gnupg && chmod 700 /root/.gnupg && \
+    mkdir -p /keys && \
+    curl -fsSL "$UPLOADER_KEY_URL" -o /keys/steve-langasek.asc && \
+    test -s /keys/steve-langasek.asc && \
     rm -rf /var/lib/apt/lists/*
+
+ENV UBUNTU_UPLOADER_KEY_FILE=/keys/steve-langasek.asc
 
 WORKDIR /build
 
