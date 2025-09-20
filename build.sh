@@ -43,10 +43,39 @@ cd /build
 
 # ========================= GPG / Keyrings utilities ==========================
 prepare_gnupg() { mkdir -p /root/.gnupg && chmod 700 /root/.gnupg; }
+
 import_uploader_key() {
   command -v gpg >/dev/null 2>&1 || return 1
-  log "Importing uploader key ${UBUNTU_UPLOADER_KEY} (keyserver.ubuntu.com)..."
-  gpg --batch --keyserver hkps://keyserver.ubuntu.com --recv-keys "${UBUNTU_UPLOADER_KEY}" || return 1
+  local fp_main="${UBUNTU_UPLOADER_KEY:-AC483F68DE728F43F2202FCA568D30F321B2133D}"
+  # chave antiga/alternativa vista no log:
+  local fp_alt="${UBUNTU_UPLOADER_KEY_ALT:-5759F35001AA4A64}"
+
+  prepare_gnupg
+
+  echo "==> Importing uploader key(s) from keyserver.ubuntu.com…"
+  # 1) tentar hkps (443)
+  gpg --batch --keyserver hkps://keyserver.ubuntu.com --recv-keys "$fp_main" || true
+  # 2) tentar hkp (porta 80) — útil em ambientes que bloqueiam TLS do dirmngr
+  gpg --batch --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys "$fp_main" || true
+
+  # 3) se ainda não veio, buscar por e-mail (puxa todas as chaves do mantenedor)
+  if ! gpg --list-keys "$fp_main" >/dev/null 2>&1; then
+    gpg --batch --keyserver hkps://keyserver.ubuntu.com --search-keys "steve.langasek@ubuntu.com" <<<'y' || true
+  fi
+
+  # 4) importar fingerprint alternativo visto na sua saída, só para garantir
+  gpg --batch --keyserver hkps://keyserver.ubuntu.com --recv-keys "$fp_alt" || true
+  gpg --batch --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys "$fp_alt" || true
+
+  # 5) último recurso: baixar a chave armorizada direto do endpoint do Ubuntu
+  if ! gpg --list-keys "$fp_main" >/dev/null 2>&1; then
+    echo "==> Fallback: fetching armored key for $fp_main"
+    curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x${fp_main}" \
+      | gpg --import || true
+  fi
+
+  # sucesso se, e somente se, a chave principal estiver presente
+  gpg --list-keys "$fp_main" >/dev/null 2>&1
 }
 
 # ============================== Download source ===============================
