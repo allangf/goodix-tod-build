@@ -1,18 +1,30 @@
 services:
-  goodix-tod-builder:
+  builder:
     build:
       context: .
-      dockerfile: Dockerfile
-    image: goodix-tod-build
+      args:
+        # Primary: pass the uploader fingerprint to the Dockerfile
+        UPLOADER_KEY_FPR: "D4C501DA48EB797A081750939449C2F50996635F"
+        # Fallback (optional): armored key URL used only if keyserver fails
+        UPLOADER_KEY_URL: "https://keyserver.ubuntu.com/pks/lookup?fingerprint=on&op=get&search=0xD4C501DA48EB797A081750939449C2F50996635F"
     environment:
-      DGET_NO_CHECK: "0"   # keep signature verification ON
-      DIST_NAME: "trixie"
-      GOODIX_BRANCH: "ubuntu/noble-devel"
+      # (optional) keep verification ON: 0 = verify, 1 = skip
+      DGET_NO_CHECK: "0"
+
+      # Signed libfprint 1.94.9 + TOD (.dsc)
+      LIBFPRINT_DSC_URL: "https://launchpad.net/ubuntu/+archive/primary/+files/libfprint_1.94.9+tod1-1.dsc"
+
+      # Goodix plugin source (Launchpad)
       GOODIX_REPO_URL: "https://git.launchpad.net/libfprint-2-tod1-goodix"
-      LIBFPRINT_DSC_URL: "http://archive.ubuntu.com/ubuntu/pool/main/libf/libfprint/libfprint_1.94.7+tod1-0ubuntu4.dsc"
+      GOODIX_BRANCH: "ubuntu/noble-devel"
+
+      # Current uploader fingerprint (build.sh also uses this)
+      UBUNTU_UPLOADER_KEY: "D4C501DA48EB797A081750939449C2F50996635F"
+
+      # Target Debian 13 (suffix normalization in changelog)
+      DIST_NAME: "trixie"
       LOCAL_SUFFIX: "~trixie1"
-      UBUNTU_UPLOADER_KEY_FILE: "/keys/steve-langasek.asc"
-      UBUNTU_UPLOADER_KEY: "AC483F68DE728F43F2202FCA568D30F321B2133D"
     volumes:
       - ./out:/out
-    tty: true
+    # Run the pipeline when the container starts
+    command: [ "/build.sh" ]

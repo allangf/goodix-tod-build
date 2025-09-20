@@ -1,12 +1,11 @@
-# Minimal, clean Debian 13 (trixie) builder image
+# Minimal, clean Debian 13 (Trixie) builder image
 FROM debian:trixie
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-ARG UPLOADER_KEY_URL="https://keyserver.ubuntu.com/pks/lookup?fingerprint=on&op=get&search=0xAC483F68DE728F43F2202FCA568D30F321B2133D"
-ENV UBUNTU_UPLOADER_KEY=AC483F68DE728F43F2202FCA568D30F321B2133D
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Core toolchain and build dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
     build-essential \
     ca-certificates \
     cmake \
@@ -42,22 +41,37 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     umockdev \
     wget && \
     mkdir -p /root/.gnupg && chmod 700 /root/.gnupg && \
-    mkdir -p /keys && \
-    curl -fsSL "$UPLOADER_KEY_URL" -o /keys/steve-langasek.asc && \
-    test -s /keys/steve-langasek.asc && \
     rm -rf /var/lib/apt/lists/*
 
-# Drop the exact fingerprint armored key into /keys and verify it is non-empty
-RUN mkdir -p /keys \
- && curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?fingerprint=on&op=get&search=0xAC483F68DE728F43F2202FCA568D30F321B2133D" \
-    -o /keys/steve-langasek.asc \
- && grep -q "BEGIN PGP PUBLIC KEY BLOCK" /keys/steve-langasek.asc
+# --- GPG uploader key (Ubuntu) ---
+# Primary: fingerprint
+ARG UPLOADER_KEY_FPR="D4C501DA48EB797A081750939449C2F50996635F"
+# Derive the armored key URL from the fingerprint (ENV can expand ARG set above)
+ENV UPLOADER_KEY_URL="https://keyserver.ubuntu.com/pks/lookup?fingerprint=on&op=get&search=0x${UPLOADER_KEY_FPR}"
 
-ENV UBUNTU_UPLOADER_KEY_FILE=/keys/steve-langasek.asc
+# Import uploader key so dget/gpgv can verify .dsc/.orig.tar signatures
+# Try keyserver first; if it fails, fallback to armored key URL
+RUN (gpg --batch --no-tty --keyserver hkps://keyserver.ubuntu.com --recv-keys "$UPLOADER_KEY_FPR" || \
+    curl -fsSL "$UPLOADER_KEY_URL" | gpg --import) && \
+    gpg --batch --yes --no-tty --export "$UPLOADER_KEY_FPR" > /root/.gnupg/trustedkeys.gpg
+
+# Expose the key fingerprint as an env var (build.sh may use it)
+ENV UBUNTU_UPLOADER_KEY=${UPLOADER_KEY_FPR}
+
+# --- Build-time defaults (can be overridden by build args / docker-compose) ---
+ARG LIBFPRINT_DSC_URL="https://launchpad.net/ubuntu/+archive/primary/+files/libfprint_1.94.9+tod1-1.dsc"
+ARG GOODIX_REPO_URL="https://git.launchpad.net/libfprint-2-tod1-goodix"
+ARG GOODIX_BRANCH="ubuntu/noble-devel"
+
+ENV LIBFPRINT_DSC_URL=${LIBFPRINT_DSC_URL} \
+    GOODIX_REPO_URL=${GOODIX_REPO_URL} \
+    GOODIX_BRANCH=${GOODIX_BRANCH}
 
 WORKDIR /build
 
+# Build pipeline entrypoint
 COPY build.sh /build.sh
 RUN chmod +x /build.sh
 
+# Default command runs the build pipeline
 CMD ["/build.sh"]
