@@ -133,4 +133,5 @@ Feel free to open issues or submit pull requests for improvements, bug fixes, or
 
 ## 📜 License
 
-This repository is released under the **MIT License**. See [LICENSE](LICENSE) for details.
+This repository is released into the **public domain** under [The Unlicense](LICENSE).
+
