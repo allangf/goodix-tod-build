@@ -5,9 +5,9 @@ set -euo pipefail
 # Usage:
 #   sudo bash install-tod-goodix.sh [/path/to/out]
 #
-# Optional variables:
+# Optional env:
 #   INSTALL_DEV=1  -> also installs -dev packages (headers)
-#   HOLD=0         -> do not apply 'apt-mark hold' (default HOLD=1)
+#   HOLD=0         -> do not apt-mark hold (default HOLD=1)
 
 DEB_DIR="${1:-./out}"
 INSTALL_DEV="${INSTALL_DEV:-0}"
@@ -20,44 +20,46 @@ die() { printf "\033[1;31m[ERROR]\033[0m %s\n" "$*"; exit 1; }
 need_root
 [ -d "$DEB_DIR" ] || die "Directory does not exist: $DEB_DIR"
 
+# Normalize to an absolute directory
+DEB_DIR="$(cd "$DEB_DIR" && pwd -P)"
 cd "$DEB_DIR"
 
-# Ensure unmatched globs expand to nothing
+# Make unmatched globs expand to nothing
 shopt -s nullglob
 
-# Select only required packages (exclude -tests, -dbgsym)
-# Core libfprint + TOD + GIR
-req_core=()
-for pat in \
-  libfprint-2-2_*_amd64.deb \
-  libfprint-2-tod1_*_amd64.deb \
-  gir1.2-fprint-2.0_*_*.deb \
-  libfprint-2-doc_*_all.deb
-do
-  matches=( $pat )
-  if [ "${#matches[@]}" -gt 0 ]; then
-    req_core+=( "${matches[0]}" )
-  fi
-done
-
-# Goodix plugin (name may vary, e.g. 550a)
-req_plugin=()
-for pat in libfprint-2-tod1-goodix-*_amd64.deb; do
-  matches=( $pat )
-  if [ "${#matches[@]}" -gt 0 ]; then
-    req_plugin+=( "${matches[0]}" )
-  fi
-done
-
-# Optional -dev packages (for development)
-opt_dev=()
-if [ "$INSTALL_DEV" = "1" ]; then
-  for pat in libfprint-2-dev_*_amd64.deb libfprint-2-tod-dev_*_amd64.deb; do
+# Helper: collect first match of each glob as absolute path
+collect_first_abs() {
+  local outvar="$1"; shift
+  local res=() pat matches
+  for pat in "$@"; do
     matches=( $pat )
     if [ "${#matches[@]}" -gt 0 ]; then
-      opt_dev+=( "${matches[0]}" )
+      # absolute path ensures APT treats it as a file, not a package name
+      res+=( "$(readlink -f -- "${matches[0]}")" )
     fi
   done
+  eval "$outvar=(\"\${res[@]}\")"
+}
+
+# Core libfprint + TOD + GIR (exclude -tests, -dbgsym)
+req_core=()
+collect_first_abs req_core \
+  "libfprint-2-2_*_amd64.deb" \
+  "libfprint-2-tod1_*_amd64.deb" \
+  "gir1.2-fprint-2.0_*_*.deb" \
+  "libfprint-2-doc_*_all.deb"
+
+# Goodix plugin (name may vary, e.g., -550a)
+req_plugin=()
+collect_first_abs req_plugin \
+  "libfprint-2-tod1-goodix-*_amd64.deb"
+
+# Optional -dev packages
+opt_dev=()
+if [ "$INSTALL_DEV" = "1" ]; then
+  collect_first_abs opt_dev \
+    "libfprint-2-dev_*_amd64.deb" \
+    "libfprint-2-tod-dev_*_amd64.deb"
 fi
 
 # Minimal checks
@@ -70,7 +72,7 @@ printf '  %s\n' "${req_core[@]}" "${req_plugin[@]}" "${opt_dev[@]:-}"
 say "Updating APT indexes..."
 apt-get update -qq
 
-# Tip: to preview actions before applying:
+# Preview (dry-run) example if you ever want it:
 # apt-get -s install --allow-downgrades "${req_core[@]}" "${req_plugin[@]}" "${opt_dev[@]:-}" || true
 
 say "Installing local packages (allowing downgrades if needed)..."
