@@ -4,19 +4,17 @@ set -euo pipefail
 # ===================== Mandatory configuration via ARG/ENV =====================
 : "${LIBFPRINT_DSC_URL:?Define LIBFPRINT_DSC_URL (URL of the .dsc for libfprint +tod1)}"
 : "${GOODIX_REPO_URL:?Define GOODIX_REPO_URL (repo of the goodix plugin)}"
-: "${GOODIX_BRANCH:=ubuntu/noble-devel}"
+: "${GOODIX_BRANCH:=ubuntu/jammy-devel}"
 
 # To skip GPG verification of the .dsc, export: DGET_NO_CHECK=1
 : "${DGET_NO_CHECK:=0}"
 
-# Uploader key listed in the .dsc (Steve Langasek – Ubuntu)
-: "${UBUNTU_UPLOADER_KEY:=AC483F68DE728F43F2202FCA568D30F321B2133D}"
-
-# Optional: alternative key seen in the wild for the same maintainer
-: "${UBUNTU_UPLOADER_KEY_ALT:=5759F35001AA4A64}"
-
-# Optional: provide your own armored key file to ensure deterministic builds
-# export UBUNTU_UPLOADER_KEY_FILE=/keys/steve-langasek.asc
+# Uploader key (Marco Trevisan – Ubuntu, for libfprint 1.94.9+tod1)
+: "${UBUNTU_UPLOADER_KEY:=D4C501DA48EB797A081750939449C2F50996635F}"
+# Optional: alternative key if you build older sources
+: "${UBUNTU_UPLOADER_KEY_ALT:=AC483F68DE728F43F2202FCA568D30F321B2133D}"
+# Optional: provide your own armored key file (mounted) to keep builds deterministic
+: "${UBUNTU_UPLOADER_KEY_FILE:=}"
 
 # Suffix/Dist to harmonize with Debian 13 (trixie)
 : "${DIST_NAME:=trixie}"
@@ -51,7 +49,6 @@ cd /build
 # ========================= GPG / Keyrings utilities ==========================
 prepare_gnupg() {
   mkdir -p /root/.gnupg && chmod 700 /root/.gnupg
-  # Harden dirmngr for flaky corporate proxies / IPv6 issues
   cat >/root/.gnupg/dirmngr.conf <<'EOF'
 keyserver hkps://keyserver.ubuntu.com
 keyserver hkp://keyserver.ubuntu.com:80
@@ -65,62 +62,51 @@ EOF
 import_uploader_key() {
   command -v gpg >/dev/null 2>&1 || return 1
 
-  local fp_main="${UBUNTU_UPLOADER_KEY:-AC483F68DE728F43F2202FCA568D30F321B2133D}"
+  local fp_main="${UBUNTU_UPLOADER_KEY}"
   local fp_alt="${UBUNTU_UPLOADER_KEY_ALT:-}"
   local key_file="${UBUNTU_UPLOADER_KEY_FILE:-}"
 
   prepare_gnupg
 
-  has_exact_fpr() {
-    # exact fingerprint match in the local keyring
+  has_fpr() {
     gpg --list-keys --with-colons 2>/dev/null | grep -q "^fpr:::::::::${fp_main}:$"
   }
 
-  export_to_trusted() {
-    # gpgv (used by dscverify) reads ~/.gnupg/trustedkeys.gpg
-    gpg --export "0x${fp_main}" > /root/.gnupg/trustedkeys.gpg
-    test -s /root/.gnupg/trustedkeys.gpg
+  recv_from() {
+    local ks="$1" kid="$2"
+    gpg --batch --keyserver "$ks" --recv-keys "0x${kid}" || return 1
   }
 
-  # 0) Import armored file first (deterministic) if provided
   if [[ -n "$key_file" && -r "$key_file" ]]; then
     echo "==> Importing uploader key from file: $key_file"
     gpg --import "$key_file" || true
   fi
 
-  # Already present?
-  if has_exact_fpr; then
-    echo "==> Uploader key present in keyring: ${fp_main}"
-    export_to_trusted
-    return 0
-  fi
+  if has_fpr; then return 0; fi
 
-  echo "==> Importing uploader key ${fp_main} from keyservers…"
-  # Ubuntu keyserver (hkps/hkp)
-  gpg --batch --keyserver hkps://keyserver.ubuntu.com --recv-keys "0x${fp_main}" || true
-  has_exact_fpr && { export_to_trusted; return 0; }
-  gpg --batch --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys "0x${fp_main}" || true
-  has_exact_fpr && { export_to_trusted; return 0; }
+  echo "==> Importing uploader key(s) from keyservers…"
+  recv_from "hkps://keyserver.ubuntu.com" "$fp_main" || true
+  has_fpr && return 0
+  recv_from "hkp://keyserver.ubuntu.com:80" "$fp_main" || true
+  has_fpr && return 0
+  recv_from "hkps://keys.openpgp.org" "$fp_main" || true
+  has_fpr && return 0
 
-  # keys.openpgp.org (may miss UIDs, but key material is fine)
-  gpg --batch --keyserver hkps://keys.openpgp.org --recv-keys "0x${fp_main}" || true
-  has_exact_fpr && { export_to_trusted; return 0; }
+  gpg --batch --keyserver hkps://keyserver.ubuntu.com --search-keys "marco@ubuntu.com" <<<'y' || true
+  has_fpr && return 0
 
-  # Fallback: fetch armored block by exact fingerprint
-  echo "==> Fallback: fetching armored key by fingerprint"
-  if curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?fingerprint=on&op=get&search=0x${fp_main}" | gpg --import; then
-    has_exact_fpr && { export_to_trusted; return 0; }
-  fi
-
-  # (Optional) also try alternate key seen in logs
   if [[ -n "$fp_alt" ]]; then
-    gpg --batch --keyserver hkps://keyserver.ubuntu.com --recv-keys "0x${fp_alt}" || true
-    # still require main fingerprint to be present
-    has_exact_fpr && { export_to_trusted; return 0; }
+    recv_from "hkps://keyserver.ubuntu.com" "$fp_alt" || true
+    has_fpr && return 0
   fi
 
-  echo "[ERROR] Could not import the exact fingerprint ${fp_main} into the local keyring."
-  return 1
+  echo "==> Fallback: fetching armored key for ${fp_main}"
+  if curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x${fp_main}" | gpg --import; then
+    has_fpr && return 0
+  fi
+
+  curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?fingerprint=on&op=get&search=0x${fp_main}" | gpg --import || true
+  has_fpr
 }
 
 # ============================== Download source ===============================
@@ -136,7 +122,6 @@ fetch_src() {
     warn "dget not found; using dpkg-source without GPG verification."
     local dsc="$(basename "${LIBFPRINT_DSC_URL}")"
     run wget -q "${LIBFPRINT_DSC_URL}"
-    # Download tarballs listed in the .dsc (so dpkg-source -x works)
     awk '/^Files:/{f=1;next} f && NF{print $NF}' "${dsc}" | while read -r tar; do
       [[ -f "$tar" ]] || wget -q "$(dirname "${LIBFPRINT_DSC_URL}")/${tar}"
     done
@@ -145,23 +130,21 @@ fetch_src() {
   fi
 
   prepare_gnupg
-  # Import must succeed (exact fingerprint) and export to trustedkeys.gpg
   if import_uploader_key && dget -x "${LIBFPRINT_DSC_URL}"; then
     return
   fi
-  die "Failed to verify .dsc GPG signature. Make sure the armored key matches ${UBUNTU_UPLOADER_KEY}, or run with DGET_NO_CHECK=1."
+  die "Failed to verify .dsc GPG signature. To proceed without verification, run with DGET_NO_CHECK=1 or provide UBUNTU_UPLOADER_KEY_FILE."
 }
 
 find_src_dir() {
   local dir
-  dir="$(find . -maxdepth 1 -type d -name 'libfprint-*+tod1' | head -n1 || true)"
+  dir="$(find . -maxdepth 1 -type d -name 'libfprint-*+tod1*' | head -n1 || true)"
   [[ -n "${dir}" ]] || die "libfprint +tod1 source directory not found."
   printf "%s\n" "${dir}"
 }
 
 # ============================ Meson/PC (udev) patches ========================
 patch_meson_udev_dep() {
-  # Safe replace: dependency('udev') -> dependency('libudev')
   local root="$1"
   while IFS= read -r -d '' f; do
     sed -i "s/dependency('udev')/dependency('libudev')/g" "$f"
@@ -169,7 +152,6 @@ patch_meson_udev_dep() {
 }
 
 ensure_libudev_pc_vars() {
-  # Shim libudev.pc to expose udevdir/udevrulesdir (when missing)
   local sys_pc
   sys_pc="$(pkg-config --variable=pcfiledir libudev 2>/dev/null || true)"
   [[ -n "${sys_pc}" ]] || die "libudev.pc not found."
@@ -193,13 +175,11 @@ normalize_version_changelog() {
   command -v dch >/dev/null 2>&1 || { warn "dch not found; skipping changelog normalization."; return 0; }
   (
     cd "${pkgdir}"
-    local cur new
-    cur="$(dpkg-parsechangelog -SVersion)" # e.g. 1:1.94.7+tod1-0ubuntu4
-    # Bump the Ubuntu version by appending a distro-local rebuild suffix
-    new="${cur}+rebuild${LOCAL_SUFFIX}" # e.g. 1:1.94.7+tod1-0ubuntu4+rebuild~trixie1
-    dch --force-distribution --force-bad-version -b -v "${new}" \
-        --distribution "${DIST_NAME}" \
-        "Rebuild for Debian ${DIST_NAME} from Ubuntu source (${cur})."
+    local cur ver
+    cur="$(dpkg-parsechangelog -SVersion)"
+    # append +rebuild~trixie1 to whatever came from Ubuntu
+    ver="${cur}+rebuild${LOCAL_SUFFIX}"
+    dch --force-distribution --force-bad-version -b -v "${ver}" --distribution "${DIST_NAME}" "Rebuild for Debian ${DIST_NAME} (was ${cur})."
   )
 }
 
@@ -216,20 +196,15 @@ build_core() {
 
   (
     cd "${src_dir}"
-    # NEW: pull core build-deps from debian/control (no need for deb-src when using ".")
     apt-get update -qq
     if ! apt-get -y build-dep .; then
       warn "Could not auto-install all core build-deps from debian/control."
       apt-get -s build-dep . || true
       die "Missing core build-deps. See the list above."
     fi
-
-    # Opcional: evitar rodar testes em ambientes headless
     export DEB_BUILD_OPTIONS="${DEB_BUILD_OPTIONS:-} nocheck"
-
     dpkg-buildpackage -us -uc -b
   )
-
   find "${src_dir}/.." -maxdepth 1 -type f -name '*.deb' -exec cp -v {} /out/ \;
   log "[OK] Core packages copied to /out"
 }
@@ -251,7 +226,8 @@ install_core_locals() {
 # ============================== Build Goodix plugin ==========================
 clone_and_patch_goodix() {
   log "(4/6) Cloning and patching Goodix plugin..."
-  local try_branches=("${GOODIX_BRANCH}" "ubuntu/noble" "ubuntu/noble-devel" "ubuntu/mantic" "debian/sid" "main" "master")
+  # Prefer the requested branch; add broad fallbacks that include 530c-capable branches.
+  local try_branches=("${GOODIX_BRANCH}" "ubuntu/jammy-devel" "ubuntu/jammy" "ubuntu/focal-devel" "ubuntu/focal" "ubuntu/noble" "ubuntu/noble-devel" "ubuntu/mantic" "debian/sid" "main" "master")
   rm -rf goodix || true
   local ok=0 chosen_branch=""
   for br in "${try_branches[@]}"; do

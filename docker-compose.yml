@@ -3,22 +3,22 @@ services:
     build:
       context: .
       args:
-        # Primary: pass the uploader fingerprint to the Dockerfile
+        # Primary fingerprint used by the Dockerfile to import the uploader key
         UPLOADER_KEY_FPR: "D4C501DA48EB797A081750939449C2F50996635F"
-        # Fallback (optional): armored key URL used only if keyserver fails
+        # Fallback URL for an armored key (used only if the keyserver is flaky)
         UPLOADER_KEY_URL: "https://keyserver.ubuntu.com/pks/lookup?fingerprint=on&op=get&search=0xD4C501DA48EB797A081750939449C2F50996635F"
     environment:
-      # (optional) keep verification ON: 0 = verify, 1 = skip
+      # Keep verification ON (0 = verify, 1 = skip)
       DGET_NO_CHECK: "0"
 
       # Signed libfprint 1.94.9 + TOD (.dsc)
       LIBFPRINT_DSC_URL: "https://launchpad.net/ubuntu/+archive/primary/+files/libfprint_1.94.9+tod1-1.dsc"
 
-      # Goodix plugin source (Launchpad)
+      # Goodix plugin (branch with 27c6:530c support)
       GOODIX_REPO_URL: "https://git.launchpad.net/libfprint-2-tod1-goodix"
-      GOODIX_BRANCH: "ubuntu/noble-devel"
+      GOODIX_BRANCH: "ubuntu/jammy-devel"
 
-      # Current uploader fingerprint (build.sh also uses this)
+      # Uploader fingerprint (build.sh uses this too)
       UBUNTU_UPLOADER_KEY: "D4C501DA48EB797A081750939449C2F50996635F"
 
       # Target Debian 13 (suffix normalization in changelog)
@@ -26,5 +26,4 @@ services:
       LOCAL_SUFFIX: "~trixie1"
     volumes:
       - ./out:/out
-    # Run the pipeline when the container starts
-    command: [ "/build.sh" ]
+    command: ["/build.sh"]
