@@ -67,63 +67,52 @@ import_uploader_key() {
 
   local fp_main="${UBUNTU_UPLOADER_KEY}"
   local fp_alt="${UBUNTU_UPLOADER_KEY_ALT:-}"
-
   local key_file="${UBUNTU_UPLOADER_KEY_FILE:-}"
 
   prepare_gnupg
 
   has_fpr() {
-    # exact fingerprint match
     gpg --list-keys --with-colons 2>/dev/null | grep -q "^fpr:::::::::${fp_main}:$"
   }
 
-  recv_from() {
-    local ks="$1" kid="$2"
-    gpg --batch --keyserver "$ks" --recv-keys "0x${kid}" || return 1
+  export_to_trusted() {
+    # gpgv (usado por dscverify) lê trustedkeys.gpg por padrão
+    gpg --export "0x${fp_main}" > /root/.gnupg/trustedkeys.gpg
+    # sanity check: trustedkeys.gpg não vazio
+    test -s /root/.gnupg/trustedkeys.gpg
   }
 
-  # 0) If a local armored key is provided, import it first (deterministic builds)
+  # 0) Import from file (deterministic) if present
   if [[ -n "$key_file" && -r "$key_file" ]]; then
     echo "==> Importing uploader key from file: $key_file"
     gpg --import "$key_file" || true
   fi
 
-  # If already present, we are done.
+  # 1) If not present, try keyservers (hkps/hkp + openpgp)
+  if ! has_fpr; then
+    echo "==> Importing uploader key(s) from keyservers…"
+    gpg --batch --keyserver hkps://keyserver.ubuntu.com --recv-keys "0x${fp_main}" || true
+    has_fpr || gpg --batch --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys "0x${fp_main}" || true
+    has_fpr || gpg --batch --keyserver hkps://keys.openpgp.org --recv-keys "0x${fp_main}" || true
+  fi
+
+  # 2) As a last resort, fetch armored by exact fingerprint and import
+  if ! has_fpr; then
+    echo "==> Fallback: fetching armored key by exact fingerprint"
+    curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?fingerprint=on&op=get&search=0x${fp_main}" | gpg --import || true
+  fi
+
+  # 3) Optional: also import the alternate key seen in logs (not required)
+  if ! has_fpr && [[ -n "$fp_alt" ]]; then
+    gpg --batch --keyserver hkps://keyserver.ubuntu.com --recv-keys "0x${fp_alt}" || true
+  fi
+
+  # 4) Final check + export to trustedkeys.gpg so gpgv/dscverify will see it
   if has_fpr; then
     echo "==> Uploader key present in keyring: ${fp_main}"
+    export_to_trusted
     return 0
   fi
-
-  echo "==> Importing uploader key(s) from keyservers…"
-  # 1) Ubuntu keyserver hkps/hkp
-  recv_from "hkps://keyserver.ubuntu.com" "$fp_main" || true
-  has_fpr && { echo "==> Uploader key present in keyring: ${fp_main}"; return 0; }
-  recv_from "hkp://keyserver.ubuntu.com:80" "$fp_main" || true
-  has_fpr && { echo "==> Uploader key present in keyring: ${fp_main}"; return 0; }
-
-  # 2) keys.openpgp.org try (may omit UIDs without consent, but worth trying)
-  recv_from "hkps://keys.openpgp.org" "$fp_main" || true
-  has_fpr && { echo "==> Uploader key present in keyring: ${fp_main}"; return 0; }
-
-  # 3) Search by email on Ubuntu keyserver (brings all keys for the maintainer)
-  gpg --batch --keyserver hkps://keyserver.ubuntu.com --search-keys "steve.langasek@ubuntu.com" <<<'y' || true
-  has_fpr && { echo "==> Uploader key present in keyring: ${fp_main}"; return 0; }
-
-  # 4) Try the alternative fingerprint we saw in logs
-  if [[ -n "$fp_alt" ]]; then
-    recv_from "hkps://keyserver.ubuntu.com" "$fp_alt" || true
-    has_fpr && { echo "==> Uploader key present in keyring: ${fp_main}"; return 0; }
-  fi
-
-  # 5) Fallback: fetch armored key directly and import
-  echo "==> Fallback: fetching armored key for ${fp_main}"
-  if curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x${fp_main}" | gpg --import; then
-    has_fpr && { echo "==> Uploader key present in keyring: ${fp_main}"; return 0; }
-  fi
-
-  # 6) Last resort: index+get with fingerprint+wkd on Ubuntu server
-  curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?fingerprint=on&op=get&search=0x${fp_main}" | gpg --import || true
-  has_fpr && { echo "==> Uploader key present in keyring: ${fp_main}"; return 0; }
 
   return 1
 }
