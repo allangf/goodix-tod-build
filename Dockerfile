@@ -47,6 +47,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     test -s /keys/steve-langasek.asc && \
     rm -rf /var/lib/apt/lists/*
 
+# Drop the exact fingerprint armored key into /keys and verify it is non-empty
+RUN mkdir -p /keys \
+ && curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?fingerprint=on&op=get&search=0xAC483F68DE728F43F2202FCA568D30F321B2133D" \
+    -o /keys/steve-langasek.asc \
+ && grep -q "BEGIN PGP PUBLIC KEY BLOCK" /keys/steve-langasek.asc
+
 ENV UBUNTU_UPLOADER_KEY_FILE=/keys/steve-langasek.asc
 
 WORKDIR /build

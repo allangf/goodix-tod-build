@@ -5,12 +5,14 @@ services:
       dockerfile: Dockerfile
     image: goodix-tod-build
     environment:
-      LIBFPRINT_DSC_URL: "http://archive.ubuntu.com/ubuntu/pool/main/libf/libfprint/libfprint_1.94.7+tod1-0ubuntu4.dsc"
-      GOODIX_REPO_URL: "https://git.launchpad.net/libfprint-2-tod1-goodix"
-      GOODIX_BRANCH: "ubuntu/noble-devel"
       DGET_NO_CHECK: "0"   # keep signature verification ON
       DIST_NAME: "trixie"
+      GOODIX_BRANCH: "ubuntu/noble-devel"
+      GOODIX_REPO_URL: "https://git.launchpad.net/libfprint-2-tod1-goodix"
+      LIBFPRINT_DSC_URL: "http://archive.ubuntu.com/ubuntu/pool/main/libf/libfprint/libfprint_1.94.7+tod1-0ubuntu4.dsc"
       LOCAL_SUFFIX: "~trixie1"
+      UBUNTU_UPLOADER_KEY_FILE: "/keys/steve-langasek.asc"
+      UBUNTU_UPLOADER_KEY: "AC483F68DE728F43F2202FCA568D30F321B2133D"
     volumes:
       - ./out:/out
     tty: true

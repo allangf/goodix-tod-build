@@ -65,55 +65,61 @@ EOF
 import_uploader_key() {
   command -v gpg >/dev/null 2>&1 || return 1
 
-  local fp_main="${UBUNTU_UPLOADER_KEY}"
+  local fp_main="${UBUNTU_UPLOADER_KEY:-AC483F68DE728F43F2202FCA568D30F321B2133D}"
   local fp_alt="${UBUNTU_UPLOADER_KEY_ALT:-}"
   local key_file="${UBUNTU_UPLOADER_KEY_FILE:-}"
 
   prepare_gnupg
 
-  has_fpr() {
+  has_exact_fpr() {
+    # exact fingerprint match in the local keyring
     gpg --list-keys --with-colons 2>/dev/null | grep -q "^fpr:::::::::${fp_main}:$"
   }
 
   export_to_trusted() {
-    # gpgv (usado por dscverify) lê trustedkeys.gpg por padrão
+    # gpgv (used by dscverify) reads ~/.gnupg/trustedkeys.gpg
     gpg --export "0x${fp_main}" > /root/.gnupg/trustedkeys.gpg
-    # sanity check: trustedkeys.gpg não vazio
     test -s /root/.gnupg/trustedkeys.gpg
   }
 
-  # 0) Import from file (deterministic) if present
+  # 0) Import armored file first (deterministic) if provided
   if [[ -n "$key_file" && -r "$key_file" ]]; then
     echo "==> Importing uploader key from file: $key_file"
     gpg --import "$key_file" || true
   fi
 
-  # 1) If not present, try keyservers (hkps/hkp + openpgp)
-  if ! has_fpr; then
-    echo "==> Importing uploader key(s) from keyservers…"
-    gpg --batch --keyserver hkps://keyserver.ubuntu.com --recv-keys "0x${fp_main}" || true
-    has_fpr || gpg --batch --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys "0x${fp_main}" || true
-    has_fpr || gpg --batch --keyserver hkps://keys.openpgp.org --recv-keys "0x${fp_main}" || true
-  fi
-
-  # 2) As a last resort, fetch armored by exact fingerprint and import
-  if ! has_fpr; then
-    echo "==> Fallback: fetching armored key by exact fingerprint"
-    curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?fingerprint=on&op=get&search=0x${fp_main}" | gpg --import || true
-  fi
-
-  # 3) Optional: also import the alternate key seen in logs (not required)
-  if ! has_fpr && [[ -n "$fp_alt" ]]; then
-    gpg --batch --keyserver hkps://keyserver.ubuntu.com --recv-keys "0x${fp_alt}" || true
-  fi
-
-  # 4) Final check + export to trustedkeys.gpg so gpgv/dscverify will see it
-  if has_fpr; then
+  # Already present?
+  if has_exact_fpr; then
     echo "==> Uploader key present in keyring: ${fp_main}"
     export_to_trusted
     return 0
   fi
 
+  echo "==> Importing uploader key ${fp_main} from keyservers…"
+  # Ubuntu keyserver (hkps/hkp)
+  gpg --batch --keyserver hkps://keyserver.ubuntu.com --recv-keys "0x${fp_main}" || true
+  has_exact_fpr && { export_to_trusted; return 0; }
+  gpg --batch --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys "0x${fp_main}" || true
+  has_exact_fpr && { export_to_trusted; return 0; }
+
+  # keys.openpgp.org (may miss UIDs, but key material is fine)
+  gpg --batch --keyserver hkps://keys.openpgp.org --recv-keys "0x${fp_main}" || true
+  has_exact_fpr && { export_to_trusted; return 0; }
+
+  # Fallback: fetch armored block by exact fingerprint
+  echo "==> Fallback: fetching armored key by fingerprint"
+  if curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?fingerprint=on&op=get&search=0x${fp_main}" | gpg --import; then
+    has_exact_fpr && { export_to_trusted; return 0; }
+  fi
+
+  # (Optional) also try alternate key seen in logs
+  if [[ -n "$fp_alt" ]]; then
+    gpg --batch --keyserver hkps://keyserver.ubuntu.com --recv-keys "0x${fp_alt}" || true
+    # still require main fingerprint to be present
+    has_exact_fpr && { export_to_trusted; return 0; }
+  fi
+
+  echo "[ERROR] Could not import the exact fingerprint ${fp_main} into the local keyring."
   return 1
 }
 
@@ -130,7 +136,7 @@ fetch_src() {
     warn "dget not found; using dpkg-source without GPG verification."
     local dsc="$(basename "${LIBFPRINT_DSC_URL}")"
     run wget -q "${LIBFPRINT_DSC_URL}"
-    # Download required tarballs listed in the .dsc
+    # Download tarballs listed in the .dsc (so dpkg-source -x works)
     awk '/^Files:/{f=1;next} f && NF{print $NF}' "${dsc}" | while read -r tar; do
       [[ -f "$tar" ]] || wget -q "$(dirname "${LIBFPRINT_DSC_URL}")/${tar}"
     done
@@ -139,10 +145,11 @@ fetch_src() {
   fi
 
   prepare_gnupg
+  # Import must succeed (exact fingerprint) and export to trustedkeys.gpg
   if import_uploader_key && dget -x "${LIBFPRINT_DSC_URL}"; then
     return
   fi
-  die "Failed to verify .dsc GPG signature. To proceed without verification, run with DGET_NO_CHECK=1 or provide UBUNTU_UPLOADER_KEY_FILE."
+  die "Failed to verify .dsc GPG signature. Make sure the armored key matches ${UBUNTU_UPLOADER_KEY}, or run with DGET_NO_CHECK=1."
 }
 
 find_src_dir() {
@@ -186,10 +193,13 @@ normalize_version_changelog() {
   command -v dch >/dev/null 2>&1 || { warn "dch not found; skipping changelog normalization."; return 0; }
   (
     cd "${pkgdir}"
-    local cur ver
-    cur="$(dpkg-parsechangelog -SVersion)"
-    ver="${cur%%-*}-0${LOCAL_SUFFIX}"
-    dch --force-distribution --force-bad-version -b -v "${ver}" --distribution "${DIST_NAME}" "Rebuild for Debian ${DIST_NAME} (was ${cur})."
+    local cur new
+    cur="$(dpkg-parsechangelog -SVersion)" # e.g. 1:1.94.7+tod1-0ubuntu4
+    # Bump the Ubuntu version by appending a distro-local rebuild suffix
+    new="${cur}+rebuild${LOCAL_SUFFIX}" # e.g. 1:1.94.7+tod1-0ubuntu4+rebuild~trixie1
+    dch --force-distribution --force-bad-version -b -v "${new}" \
+        --distribution "${DIST_NAME}" \
+        "Rebuild for Debian ${DIST_NAME} from Ubuntu source (${cur})."
   )
 }
 
@@ -278,7 +288,7 @@ if ! pkg-config --exists libudev && ! pkg-config --exists udev; then
 fi
 
 build_core "${SRC_DIR}"
-install_core_locals"
+install_core_locals
 clone_and_patch_goodix
 precheck_goodix_builddeps
 build_goodix
