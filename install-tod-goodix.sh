@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
 # install-tod-goodix.sh
-# Instala libfprint (1.94.9+tod1) + TOD + plugin Goodix (53xc ou 550a) a partir de .debs locais,
-# preferindo automaticamente o plugin correto pelo USB ID (27c6:530c → 53xc; 27c6:550a → 550a).
-# Projetado para Debian 13 (trixie). Evita conflitos entre plugins.
+# Installs libfprint (1.94.9+tod1) + TOD + Goodix plugin (53xc or 550a) from local .debs,
+# automatically preferring the correct plugin based on USB ID (27c6:530c → 53xc; 27c6:550a → 550a).
+# Designed for Debian 13 (trixie). Prevents conflicts between plugins.
 #
-# Uso:
+# Usage:
 #   sudo bash install-tod-goodix.sh [OUTDIR]
 #
-# Variáveis opcionais (env):
-#   INSTALL_DEV=1    -> também instala pacotes -dev (headers) se existirem (padrão: 0)
-#   HOLD=1           -> aplica apt-mark hold nos pacotes instalados (padrão: 1)
-#   TRY_FPRINTD=1    -> tenta garantir fprintd/libpam-fprintd do repositório (padrão: 1)
-#   PREFER_PLUGIN=   -> força "53xc" ou "550a" (sobrepõe autodetecção por USB ID)
-#   DRY_RUN=1        -> mostra o que faria, sem aplicar
+# Optional env variables:
+#   INSTALL_DEV=1    -> also install -dev packages (headers) if available (default: 0)
+#   HOLD=1           -> apply apt-mark hold on installed packages (default: 1)
+#   TRY_FPRINTD=1    -> try to ensure fprintd/libpam-fprintd from repository (default: 1)
+#   PREFER_PLUGIN=   -> force "53xc" or "550a" (overrides USB ID auto-detection)
+#   DRY_RUN=1        -> show what would be executed without applying
 #
-# Retornos:
-#   0 = sucesso; !=0 em caso de erro.
+# Exit codes:
+#   0 = success; non-zero on error.
 #
-# Requisitos:
-#   - Executar como root
-#   - OUTDIR deve conter .debs de: libfprint-2-2_*.deb, libfprint-2-tod1_*.deb
-#     e pelo menos um dos plugins: libfprint-2-tod1-goodix-53xc_*.deb OU ...-550a_*.deb
+# Requirements:
+#   - Must run as root
+#   - OUTDIR must contain .debs for: libfprint-2-2_*.deb, libfprint-2-tod1_*.deb
+#     and at least one plugin: libfprint-2-tod1-goodix-53xc_*.deb OR ...-550a_*.deb
 #
 set -Eeuo pipefail
 
@@ -28,7 +28,7 @@ set -Eeuo pipefail
 bblue="\033[1;34m"; byellow="\033[1;33m"; bred="\033[1;31m"; bgreen="\033[1;32m"; reset="\033[0m"
 info(){ echo -e "${bblue}[INFO]${reset} $*"; }
 warn(){ echo -e "${byellow}[WARN]${reset} $*"; }
-err() { echo -e "${bred}[ERRO]${reset}  $*" >&2; }
+err() { echo -e "${bred}[ERROR]${reset}  $*" >&2; }
 ok()  { echo -e "${bgreen}[OK]${reset}   $*"; }
 
 die(){ err "$*"; exit 1; }
@@ -43,12 +43,12 @@ run(){
 
 need_root(){
   if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
-    die "Por favor, execute como root (ex.: sudo $0 [OUTDIR])."
+    die "Please run as root (e.g., sudo $0 [OUTDIR])."
   fi
 }
 
 usage(){
-  sed -n '1,80p' "$0"
+  sed -n '1,120p' "$0"
 }
 
 # ---------- args ----------
@@ -65,11 +65,11 @@ TRY_FPRINTD="${TRY_FPRINTD:-1}"
 PREFER_PLUGIN="${PREFER_PLUGIN:-}"
 DRY_RUN="${DRY_RUN:-0}"
 
-[[ -d "$OUTDIR" ]] || die "Diretório OUTDIR não existe: $OUTDIR"
+[[ -d "$OUTDIR" ]] || die "OUTDIR directory does not exist: $OUTDIR"
 
-# ---------- detecta USB ID & escolhe plugin ----------
+# ---------- detect USB ID & choose plugin ----------
 detect_usb_id(){
-  # tenta lsusb; se não achar, vazio
+  # try lsusb; if not found, return empty
   if command -v lsusb >/dev/null 2>&1; then
     lsusb | awk '/27c6:/ {print $6; found=1} END{if(!found) exit 1}'
   else
@@ -81,12 +81,12 @@ PLUGIN=""
 if [[ -n "$PREFER_PLUGIN" ]]; then
   case "$PREFER_PLUGIN" in
     53xc|550a) PLUGIN="$PREFER_PLUGIN" ;;
-    *) die "PREFER_PLUGIN inválido: '$PREFER_PLUGIN' (use '53xc' ou '550a')" ;;
+    *) die "Invalid PREFER_PLUGIN: '$PREFER_PLUGIN' (use '53xc' or '550a')" ;;
   esac
 else
   USB_ID="$(detect_usb_id || true)"
   if [[ -n "$USB_ID" ]]; then
-    info "USB ID detectado: $USB_ID"
+    info "Detected USB ID: $USB_ID"
     case "$USB_ID" in
       27c6:530c|27c6:533c|27c6:538c|27c6:5840)
         PLUGIN="53xc"
@@ -95,19 +95,19 @@ else
         PLUGIN="550a"
         ;;
       *)
-        warn "USB ID $USB_ID não mapeado; assumindo '53xc' por padrão."
+        warn "USB ID $USB_ID not mapped; defaulting to '53xc'."
         PLUGIN="53xc"
         ;;
     esac
   else
-    warn "Não foi possível detectar USB ID (lsusb indisponível ou sem dispositivo Goodix). Padrão: '53xc'."
+    warn "Unable to detect USB ID (lsusb unavailable or no Goodix device). Defaulting to '53xc'."
     PLUGIN="53xc"
   fi
 fi
 
-info "Plugin preferido: ${PLUGIN}"
+info "Preferred plugin: ${PLUGIN}"
 
-# ---------- localiza .debs ----------
+# ---------- locate .debs ----------
 shopt -s nullglob
 LIBFPRINT_DEB=( "$OUTDIR"/libfprint-2-2_*.deb )
 LIBFPRINT_TOD_DEB=( "$OUTDIR"/libfprint-2-tod1_*.deb )
@@ -118,20 +118,19 @@ PLUGIN_55_DEB=( "$OUTDIR"/libfprint-2-tod1-goodix-550a_*.deb )
 LIBFPRINT_DEV_DEB=( "$OUTDIR"/libfprint-2-dev_*.deb )
 LIBFPRINT_TOD_DEV_DEB=( "$OUTDIR"/libfprint-2-tod1-dev_*.deb )
 
-[[ ${#LIBFPRINT_DEB[@]} -ge 1 ]] || die "Não encontrei libfprint-2-2_*.deb em $OUTDIR"
-[[ ${#LIBFPRINT_TOD_DEB[@]} -ge 1 ]] || die "Não encontrei libfprint-2-tod1_*.deb em $OUTDIR"
+[[ ${#LIBFPRINT_DEB[@]} -ge 1 ]] || die "Could not find libfprint-2-2_*.deb in $OUTDIR"
+[[ ${#LIBFPRINT_TOD_DEB[@]} -ge 1 ]] || die "Could not find libfprint-2-tod1_*.deb in $OUTDIR"
 
 case "$PLUGIN" in
-  53xc) [[ ${#PLUGIN_53_DEB[@]} -ge 1 ]] || die "Preferido 53xc, mas não encontrei libfprint-2-tod1-goodix-53xc_*.deb em $OUTDIR" ;;
-  550a) [[ ${#PLUGIN_55_DEB[@]} -ge 1 ]] || die "Preferido 550a, mas não encontrei libfprint-2-tod1-goodix-550a_*.deb em $OUTDIR" ;;
+  53xc) [[ ${#PLUGIN_53_DEB[@]} -ge 1 ]] || die "Preferred 53xc, but libfprint-2-tod1-goodix-53xc_*.deb not found in $OUTDIR" ;;
+  550a) [[ ${#PLUGIN_55_DEB[@]} -ge 1 ]] || die "Preferred 550a, but libfprint-2-tod1-goodix-550a_*.deb not found in $OUTDIR" ;;
 esac
 
-# escolhe o mais recente (ordem lexical já costuma refletir versão)
+# choose the most recent package (lexical order usually matches version order)
 pick_latest(){
   local arr=("$@")
   local n="${#arr[@]}"
   [[ "$n" -ge 1 ]] || return 1
-  # simple: pega o último em sort
   printf "%s\n" "${arr[@]}" | sort -V | tail -n1
 }
 
@@ -143,123 +142,123 @@ else
   PLUGIN_DEB_FILE="$(pick_latest "${PLUGIN_55_DEB[@]}")"
 fi
 
-# devs (opcional)
+# dev packages (optional)
 LIBFPRINT_DEV_FILE=""; LIBFPRINT_TOD_DEV_FILE=""
 if [[ "$INSTALL_DEV" == "1" ]]; then
   [[ ${#LIBFPRINT_DEV_DEB[@]} -ge 1 ]] && LIBFPRINT_DEV_FILE="$(pick_latest "${LIBFPRINT_DEV_DEB[@]}" || true)"
   [[ ${#LIBFPRINT_TOD_DEV_DEB[@]} -ge 1 ]] && LIBFPRINT_TOD_DEV_FILE="$(pick_latest "${LIBFPRINT_TOD_DEV_DEB[@]}" || true)"
 fi
 
-info "Selecionados:"
+info "Selected packages:"
 echo "  libfprint-2-2      : $LIBFPRINT_DEB_FILE"
 echo "  libfprint-2-tod1   : $LIBFPRINT_TOD_DEB_FILE"
-echo "  plugin Goodix      : $PLUGIN_DEB_FILE"
+echo "  Goodix plugin      : $PLUGIN_DEB_FILE"
 if [[ -n "$LIBFPRINT_DEV_FILE" || -n "$LIBFPRINT_TOD_DEV_FILE" ]]; then
-  echo "  dev (opcionais)    : ${LIBFPRINT_DEV_FILE:-<none>} ; ${LIBFPRINT_TOD_DEV_FILE:-<none>}"
+  echo "  dev (optional)     : ${LIBFPRINT_DEV_FILE:-<none>} ; ${LIBFPRINT_TOD_DEV_FILE:-<none>}"
 fi
 
-# ---------- sanity & conflitos ----------
+# ---------- sanity & conflicts ----------
 TOD_DIR="/usr/lib/x86_64-linux-gnu/libfprint-2/tod-1"
-OTHER_PLUGIN=$([[ "$PLUGIN" == "53xc" ]] && echo "550a" || echo "53xc")
+OTHER_PLUGIN=$([[ "$PLUGIN" == "53xc" ]] && echo "550a" || echo "53xc"))
 OTHER_PKG="libfprint-2-tod1-goodix-${OTHER_PLUGIN}"
 THIS_PKG="libfprint-2-tod1-goodix-${PLUGIN}"
 
-# remove plugin conflitante se instalado
+# remove conflicting plugin package if installed
 remove_conflicting_pkg(){
   local pkg="$1"
   if dpkg -s "$pkg" >/dev/null 2>&1; then
-    warn "Removendo pacote conflitante: $pkg"
+    warn "Removing conflicting package: $pkg"
     run "dpkg -r --force-depends $pkg"
   fi
 }
 
-# apaga .so conflitante remanescente
+# remove leftover conflicting .so library
 remove_conflicting_so(){
   local other="$1"
   local so_pattern="${TOD_DIR}/libfprint-tod-goodix-${other}-*.so"
   if ls ${so_pattern} >/dev/null 2>&1; then
-    warn "Removendo .so conflitante: ${so_pattern}"
+    warn "Removing conflicting .so: ${so_pattern}"
     run "rm -f ${so_pattern}"
   fi
 }
 
-# garante dependências mínimas de sistema para instalar .debs
+# ensure minimal system dependencies to install .debs
 prep_system(){
   run "apt-get update"
-  # ferramentas úteis mas leves
+  # install lightweight but useful tools
   run "apt-get install -y --no-install-recommends udev ca-certificates"
 }
 
-# instala fprintd/libpam-fprintd do repo (se faltando)
+# ensure fprintd/libpam-fprintd from repository (if missing)
 ensure_fprintd_repo(){
   if [[ "$TRY_FPRINTD" == "1" ]]; then
     if ! dpkg -s fprintd >/dev/null 2>&1; then
-      info "Instalando fprintd do repositório"
+      info "Installing fprintd from repository"
       run "apt-get install -y --no-install-recommends fprintd libpam-fprintd || true"
     fi
   fi
 }
 
-# ---------- instalação ----------
+# ---------- installation ----------
 prep_system
 ensure_fprintd_repo
 
-# evitar serviço enquanto mexemos
+# stop fprintd service while modifying
 run "systemctl stop fprintd 2>/dev/null || true"
 
-# remove pacotes conflitantes e sobras de .so
+# remove conflicting package and .so
 remove_conflicting_pkg "$OTHER_PKG"
 remove_conflicting_so "$OTHER_PLUGIN"
 
-# instala base libfprint e tod1 primeiro (ordem importante)
-info "Instalando base libfprint"
+# install base libfprint and tod1 first (order matters)
+info "Installing libfprint base"
 run "dpkg -i '$LIBFPRINT_DEB_FILE' || apt-get -f install -y"
 run "dpkg -i '$LIBFPRINT_TOD_DEB_FILE' || apt-get -f install -y"
 
-# instala plugin escolhido
-info "Instalando plugin Goodix (${PLUGIN})"
+# install chosen plugin
+info "Installing Goodix plugin (${PLUGIN})"
 run "dpkg -i '$PLUGIN_DEB_FILE' || apt-get -f install -y"
 
-# instala devs (opcional)
+# install dev packages (optional)
 if [[ -n "$LIBFPRINT_DEV_FILE" ]]; then
-  info "Instalando libfprint-2-dev"
+  info "Installing libfprint-2-dev"
   run "dpkg -i '$LIBFPRINT_DEV_FILE' || apt-get -f install -y"
 fi
 if [[ -n "$LIBFPRINT_TOD_DEV_FILE" ]]; then
-  info "Instalando libfprint-2-tod1-dev"
+  info "Installing libfprint-2-tod1-dev"
   run "dpkg -i '$LIBFPRINT_TOD_DEV_FILE' || apt-get -f install -y"
 fi
 
-# varre e garante que o outro plugin não está presente (caso algum metapacote tenha trazido)
+# sweep again to ensure the other plugin is not present (in case some meta-package pulled it in)
 remove_conflicting_pkg "$OTHER_PKG"
 remove_conflicting_so "$OTHER_PLUGIN"
 
-# hold para evitar sobrescritas pelo APT
+# hold packages to prevent overwriting by APT
 if [[ "$HOLD" == "1" ]]; then
-  info "Aplicando apt-mark hold"
+  info "Applying apt-mark hold"
   run "apt-mark hold libfprint-2-2 libfprint-2-tod1 $THIS_PKG fprintd libpam-fprintd 2>/dev/null || true"
 fi
 
-# udev & serviço
+# reload udev and restart service
 run "udevadm control --reload"
 run "udevadm trigger"
 run "systemctl daemon-reload"
 run "systemctl restart fprintd || true"
 
-# verificação final
+# ---------- final check ----------
 echo
-ok "Instalação concluída."
-echo "Verifique:"
+ok "Installation completed."
+echo "Verify:"
 echo "  ls -l ${TOD_DIR}"
-echo "  -> deve haver APENAS: libfprint-tod-goodix-${PLUGIN}-*.so"
+echo "  -> ONLY: libfprint-tod-goodix-${PLUGIN}-*.so should be present"
 echo
-echo "Teste:"
-echo "  LIBFPRINT_DEBUG=3 fprintd-enroll"
+echo "Test:"
+echo '  LIBFPRINT_DEBUG=3 fprintd-enroll'
 echo "  journalctl -u fprintd -b --no-pager -n 200"
 echo
-echo "Dicas:"
-echo "  - Para simular sem aplicar: DRY_RUN=1 bash $0 $OUTDIR"
-echo "  - Para forçar plugin: PREFER_PLUGIN=53xc (ou 550a)"
-echo "  - Para incluir pacotes -dev: INSTALL_DEV=1"
-echo "  - Para não aplicar hold: HOLD=0"
+echo "Tips:"
+echo "  - Simulate without applying: DRY_RUN=1 bash $0 $OUTDIR"
+echo "  - Force plugin: PREFER_PLUGIN=53xc (or 550a)"
+echo "  - Include -dev packages: INSTALL_DEV=1"
+echo "  - Do not hold packages: HOLD=0"
 echo
