@@ -1,217 +1,179 @@
 # 🔐 Goodix TOD Builder for Debian 13 (Trixie)
 
-[![Debian](https://img.shields.io/badge/Debian-13_(Trixie)-A81D33?logo=debian&logoColor=white)](https://www.debian.org/)
-[![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
-[![Status](https://img.shields.io/badge/build-reproducible-brightgreen)]()
+[![Debian](<https://img.shields.io/badge/Debian-13_(Trixie)-A81D33?logo=debian&logoColor=white>)](https://www.debian.org/) [![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/) [![Shell](https://img.shields.io/badge/shell-bash-4EAA25?logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/) [![Arch](https://img.shields.io/badge/arch-x86__64-informational)](#) [![License: Unlicense](https://img.shields.io/badge/license-Unlicense-blue.svg)](http://unlicense.org/)
+(#license) [![libfprint](https://img.shields.io/badge/libfprint-1.94.9%2Btod1-blue)](https://gitlab.freedesktop.org/libfprint/libfprint) [![Goodix 53xc](https://img.shields.io/badge/Goodix-53xc-success)](#support-matrix) [![Goodix 550a](https://img.shields.io/badge/Goodix-550a-success)](#support-matrix) [![GPG Verified](https://img.shields.io/badge/GPG-Verified-8A2BE2)](#gpg-verification)
 
 This repository provides a **containerized, reproducible** way to build and install **libfprint TOD** and the **Goodix plugin** on **Debian 13 (Trixie)** — keeping the host **clean and stable** (only `.deb` packages are produced and installed).
 
-The target device is the Goodix family (e.g. **27c6:530c**). The build uses Ubuntu’s libfprint **`1.94.9+tod1`** (signed source) plus the Goodix **“550a”** plugin, which is the variant that supports 53xx devices.
+Target devices: **Goodix fingerprint readers** (e.g. `27c6:530c`, `27c6:533c`, `27c6:538c`, `27c6:5840`, `27c6:550a`).
+
+All builds happen inside Docker. On the host you only install the resulting `.deb` packages via the provided installer script.
 
 ---
 
-## ✅ Current state (what actually works here)
+## ✅ Current State
 
-- **libfprint:** `1.94.9+tod1` (aligns with Debian’s `fprintd 1.94.5-2` so it installs cleanly).
-- **Plugin:** **Goodix 550a** (`0.0.11+2404`) — packaged as `libfprint-2-tod1-goodix-550a`.
-- **Signature verification:** **enabled by default** (`DGET_NO_CHECK=0`) using the Ubuntu uploader **Marco Trevisan**’s fingerprint:  
-  `D4C501DA48EB797A081750939449C2F50996635F`.
-- **Changelog normalization:** local suffix `+rebuild~trixie1` to mark host‑friendly rebuilds.
-- **Host hygiene:** everything compiles inside Docker; installation on host is via generated `.deb` only.
-- **Cleanup script included:** `uninstall-tod-goodix.sh` fully removes previous installs (plugins/core/fprintd) and unholds packages when needed.
-
-> **Important:** Do **not** install the legacy package `libfprint-2-tod1-goodix` (without “-550a”). It conflicts with the 550a plugin (udev rules overlap). Use **only** `libfprint-2-tod1-goodix-550a` from this build.
+- **libfprint:** `1.94.9+tod1` (upstream Ubuntu, cleanly coexists with Debian’s `fprintd`).
+- **Plugins:**
+  - **Goodix 53xc** (for `27c6:530c/533c/538c/5840`)
+  - **Goodix 550a** (for `27c6:550a`)
+- **Signature verification:** Enabled by default (uses Ubuntu uploader Marco Trevisan’s fingerprint `D4C5 01DA 48EB 797A 0817 5093 9449 C2F5 0996 635F`).
+- **Changelog normalization:** Suffix `+rebuild~trixie1` marks local rebuilds.
+- **Host hygiene:** Nothing is built directly on the host, only inside Docker.
 
 ---
 
-## 📦 Repository layout
-
-```
-.
-├── Dockerfile              # Debian 13 build image + uploader key import
-├── docker-compose.yml      # Orchestration + env for the build
-├── build.sh                # Pipeline: verify .dsc, fetch, patch, build
-├── install-tod-goodix.sh   # Host installer for the generated .debs
-├── uninstall-tod-goodix.sh # Host cleanup script (reset before retries)
-└── out/                    # Output folder with generated .deb packages
-```
-
----
-
-## 🚀 Build (inside Docker)
-
-Requirements: Docker Engine + Docker Compose plugin (v2).
+## 🧭 Quickstart
 
 ```bash
-docker compose build --no-cache
-docker compose up --abort-on-container-exit
-```
-The `.deb` packages will appear under `./out/`.
+git clone <your-repo-url> goodix-tod-builder
+cd goodix-tod-builder
 
-### Build inputs (environment)
-In `docker-compose.yml` you’ll find:
+# 1) Build inside Docker (outputs to ./out)
+sudo ./build.sh
 
-```yaml
-environment:
-  DGET_NO_CHECK: "0"   # keep signature verification ON
-  LIBFPRINT_DSC_URL: "https://launchpad.net/ubuntu/+archive/primary/+files/libfprint_1.94.9+tod1-1.dsc"
-  GOODIX_REPO_URL: "https://git.launchpad.net/libfprint-2-tod1-goodix"
-  GOODIX_BRANCH: "ubuntu/noble-devel"  # default; builder attempts fallbacks if missing
-  UBUNTU_UPLOADER_KEY: "D4C501DA48EB797A081750939449C2F50996635F"  # Marco Trevisan
-  DIST_NAME: "trixie"
-  LOCAL_SUFFIX: "~trixie1"
-```
+# 2) Install the correct plugin (auto-detects 53xc vs 550a)
+sudo ./install-tod-goodix.sh ./out
 
-If your network blocks HKPS and GPG key retrieval fails, you can set `DGET_NO_CHECK=1` as a last resort to skip signature verification.
-
----
-
-## 🧩 Install on the host
-
-You can use the helper script (recommended):
-
-```bash
-sudo bash install-tod-goodix.sh ./out
-# optional flags:
-#   INSTALL_DEV=1  -> also installs -dev and GIR packages
-#   HOLD=0         -> do not apt-mark hold (default is hold)
-#   TRY_FPRINTD=0  -> skip fprintd install
-```
-
-Or install manually:
-
-```bash
-# Core + TOD
-sudo apt-get install -y ./out/libfprint-2-2_*.deb ./out/libfprint-2-tod1_*.deb
-
-# Goodix plugin (ONLY the 550a variant)
-sudo apt-get install -y ./out/libfprint-2-tod1-goodix-550a_*.deb
-
-# Optionally:
-# sudo apt-get install -y ./out/libfprint-2-dev_*.deb ./out/libfprint-2-tod-dev_*.deb ./out/gir1.2-fprint-2.0_*.deb
-```
-
-**Protect your local build from repo upgrades:**
-```bash
-sudo apt-mark hold libfprint-2-2 libfprint-2-tod1 libfprint-2-tod1-goodix-550a gir1.2-fprint-2.0 libfprint-2-dev libfprint-2-tod-dev || true
-```
-
-> ⚠️ If you ever installed the **legacy** plugin (`libfprint-2-tod1-goodix` without “-550a”), remove it to avoid udev rule conflicts:
-```bash
-sudo apt-get remove --purge -y libfprint-2-tod1-goodix
-```
-
----
-
-## 🔍 Verify & test
-
-```bash
-# Device present?
-lsusb | grep -iE '27c6|goodix'
-
-# Reload rules, trigger, and restart fprintd
-sudo udevadm control --reload
-sudo udevadm trigger
-sudo systemctl restart fprintd
-
-# Enroll with debug
+# 3) Test
 LIBFPRINT_DEBUG=3 fprintd-enroll
-
-# Other
-fprintd-list "$USER"
-journalctl -u fprintd -b --no-pager | tail -n +1
+journalctl -u fprintd -b --no-pager -n 200
 ```
 
-Plugin path (reference):
+> Tip: `DRY_RUN=1` simulates actions without changing the system.
+
+---
+
+## 📦 Scripts
+
+### `build.sh`
+
+- Builds all packages in a container (no host pollution).
+- Produces `.deb` under `./out/`.
+
+### `install-tod-goodix.sh`
+
+- Auto-detects your Goodix USB ID (`lsusb`).
+- Installs **only one** Goodix plugin (prevents conflicts):
+  - `27c6:530c/533c/538c/5840` → **53xc**
+  - `27c6:550a` → **550a**
+- Removes the other plugin (and stray `.so`) if present.
+- Reloads udev and restarts `fprintd`.
+- Applies `apt-mark hold` by default.
+
+**Options**:
+
+```bash
+PREFER_PLUGIN=53xc|550a  # force selection
+INSTALL_DEV=1            # also install -dev packages
+HOLD=0                   # skip apt hold
+DRY_RUN=1                # simulate actions
 ```
-/usr/lib/x86_64-linux-gnu/libfprint-2/tod-1/libfprint-tod-goodix-550a-0.0.11.so
+
+### `uninstall-tod-goodix.sh`
+
+- Removes both Goodix plugins, leftover `.so`, and local udev rules.
+- Optionally removes base libs and repairs from Debian repos.
+
+**Modes**:
+
+```bash
+--yes                # non-interactive
+--full --repair      # remove local libs and reinstall clean base from repo
+--purge              # purge entire fingerprint stack (fprintd/libpam/libfprint + plugins)
+--keep-holds         # keep apt holds
+--dry-run            # simulate actions
 ```
 
 ---
 
-## 🧹 Cleanup / start over
+## 🧩 Support Matrix
 
-When something goes wrong, start clean before a new attempt:
+| USB ID    | Device family | Plugin | Status |
+| --------- | ------------- | ------ | ------ |
+| 27c6:530c | Goodix 53xc   | 53xc   | ✅     |
+| 27c6:533c | Goodix 53xc   | 53xc   | ✅     |
+| 27c6:538c | Goodix 53xc   | 53xc   | ✅     |
+| 27c6:5840 | Goodix 53xc   | 53xc   | ✅     |
+| 27c6:550a | Goodix 550a   | 550a   | ✅     |
 
-```bash
-# Full reset (remove plugins/core/fprintd, drop holds, remove local udev rule)
-sudo bash uninstall-tod-goodix.sh --full --unhold --remove-local-udev --yes
+> If your device is not listed, try `lsusb` and open an issue/PR with the ID.
 
-# Then install again (using the installer or manual steps)
-sudo bash install-tod-goodix.sh ./out
+---
+
+## 🔍 Troubleshooting
+
+### fprintd crashes with:
+
+```
+libfprint-tod:ERROR:...goodix_tod_wrapper.c:goodix_tod_wrapper_init: assertion failed: (goodix_moc_identify == NULL)
 ```
 
-You can also restore Debian repo defaults after cleanup:
+**Cause**: both Goodix plugins installed simultaneously.  
+**Fix**:
+
 ```bash
-sudo bash uninstall-tod-goodix.sh --full --unhold --reinstall-repo-core --yes
+sudo ./uninstall-tod-goodix.sh --yes
+sudo ./install-tod-goodix.sh ./out   # will install only the correct plugin
+```
+
+### Both `.so` are present in TOD dir
+
+```bash
+ls -l /usr/lib/x86_64-linux-gnu/libfprint-2/tod-1/
+# Keep only ONE: libfprint-tod-goodix-53xc-*.so OR libfprint-tod-goodix-550a-*.so
+```
+
+### APT upgrades overwrote your local packages
+
+```bash
+sudo apt-mark hold libfprint-2-2 libfprint-2-tod1   libfprint-2-tod1-goodix-53xc libfprint-2-tod1-goodix-550a   fprintd libpam-fprintd
+```
+
+### Device not detected / enroll fails
+
+- Check USB ID: `lsusb | grep -i 27c6:`
+- Verify udev rules presence in `/lib/udev/rules.d/60-libfprint-2-tod1-goodix-*.rules`
+- Reload udev: `sudo udevadm control --reload && sudo udevadm trigger`
+- Restart service: `sudo systemctl restart fprintd`
+- Logs: `journalctl -u fprintd -b --no-pager -n 200`
+
+### Recover to stock Debian
+
+```bash
+sudo ./uninstall-tod-goodix.sh --full --repair --yes
 ```
 
 ---
 
-## 🧯 Troubleshooting
+## ❓ FAQ
 
-### A) `trying to overwrite ... 60-libfprint-2-tod1-goodix.rules`
-Two plugin packages are present. Keep **`libfprint-2-tod1-goodix-550a`** and purge the **legacy** `libfprint-2-tod1-goodix`:
-```bash
-sudo apt-get remove --purge -y libfprint-2-tod1-goodix
-```
-Or run the cleaner’s plugin-only mode:
-```bash
-sudo bash uninstall-tod-goodix.sh --plugin-only --unhold --yes
-```
+**Q: Debian 12 (Bookworm) supported?**  
+A: This repo targets **Debian 13**. Some steps may work on 12, but packaging and dependencies were tuned for 13.
 
-### B) `No devices available` in `fprintd-enroll`
-- Confirm the device:
-  ```bash
-  lsusb | grep -iE '27c6|goodix'
-  ```
-- Reload udev and restart the service:
-  ```bash
-  sudo udevadm control --reload
-  sudo udevadm trigger
-  sudo systemctl restart fprintd
-  ```
-- If your exact ID (e.g. **27c6:530c**) is not matched by rules, add a local rule:
-  ```bash
-  sudo tee /etc/udev/rules.d/61-libfprint-2-tod1-goodix-local.rules >/dev/null <<'EOF'
-  ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="27c6", ATTR{idProduct}=="530c", TAG+="uaccess"
-  EOF
-  sudo udevadm control --reload
-  sudo udevadm trigger
-  sudo systemctl restart fprintd
-  ```
-- Retest with debug and check logs:
-  ```bash
-  LIBFPRINT_DEBUG=3 fprintd-enroll
-  journalctl -u fprintd -b --no-pager | tail -n +100
-  ```
+**Q: Ubuntu support?**  
+A: Not targeted. The build might succeed, but use distro-native packages on Ubuntu when possible.
 
-### C) GPG verification fails during `.dsc` fetch
-- Network/keyserver issues can block HKPS. As a last resort:
-  ```bash
-  DGET_NO_CHECK=1 docker compose up --abort-on-container-exit
-  ```
+**Q: Safe to update via APT after install?**  
+A: Yes, but the installer places `apt-mark hold` by default to avoid accidental overwrites.
+
+**Q: How to switch from 550a → 53xc (or vice versa)?**  
+A: Just rerun the installer with `PREFER_PLUGIN=...` or plug the device and let auto-detection choose. The other plugin is removed automatically.
 
 ---
 
-## 🔧 Advanced
+## 🔏 GPG Verification
 
-- **Switching Goodix branch:** set `GOODIX_BRANCH` (default `ubuntu/noble-devel`). The builder also tries several fallbacks if the branch is missing.
-- **Deterministic builds:** provide a local armored key `UBUNTU_UPLOADER_KEY_FILE=/keys/uploader.asc` (mounted via volume); the pipeline imports it before hitting keyservers.
-- **USB passthrough:** if running inside a VM/LXD, ensure the Goodix USB device is passed through to the host where you test `fprintd`.
+The libfprint sources are signed by Ubuntu uploader **Marco Trevisan** (Canonical). Fingerprint:
 
----
-
-## ↩️ Rollback to Debian repo versions
-
-```bash
-sudo apt-mark unhold libfprint-2-2 libfprint-2-tod1 libfprint-2-tod1-goodix-550a gir1.2-fprint-2.0 || true
-sudo apt-get remove --purge -y libfprint-2-tod1-goodix-550a libfprint-2-tod1 libfprint-2-2
-sudo apt-get install -y libfprint-2-2 fprintd
+```
+D4C5 01DA 48EB 797A 0817 5093 9449 C2F5 0996 635F
 ```
 
+This builder fetches and validates signatures during the build.
+
 ---
 
-## 📜 License
+## 📄 License
 
-Public domain — [The Unlicense](LICENSE).
+**Public domain**. See [LICENSE](LICENSE).
