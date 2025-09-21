@@ -1,0 +1,29 @@
+services:
+  builder:
+    build:
+      context: .
+      args:
+        # Primary fingerprint used by the Dockerfile to import the uploader key
+        UPLOADER_KEY_FPR: "D4C501DA48EB797A081750939449C2F50996635F"
+        # Fallback URL for an armored key (used only if the keyserver is flaky)
+        UPLOADER_KEY_URL: "https://keyserver.ubuntu.com/pks/lookup?fingerprint=on&op=get&search=0xD4C501DA48EB797A081750939449C2F50996635F"
+    environment:
+      # Keep verification ON (0 = verify, 1 = skip)
+      DGET_NO_CHECK: "0"
+
+      # Signed libfprint 1.94.9 + TOD (.dsc)
+      LIBFPRINT_DSC_URL: "https://launchpad.net/ubuntu/+archive/primary/+files/libfprint_1.94.9+tod1-1.dsc"
+
+      # Goodix plugin (branch with 27c6:530c support)
+      GOODIX_REPO_URL: "https://git.launchpad.net/libfprint-2-tod1-goodix"
+      GOODIX_BRANCH: "ubuntu/jammy-devel"
+
+      # Uploader fingerprint (build.sh uses this too)
+      UBUNTU_UPLOADER_KEY: "D4C501DA48EB797A081750939449C2F50996635F"
+
+      # Target Debian 13 (suffix normalization in changelog)
+      DIST_NAME: "trixie"
+      LOCAL_SUFFIX: "~trixie1"
+    volumes:
+      - ./out:/out
+    command: ["/build.sh"]
