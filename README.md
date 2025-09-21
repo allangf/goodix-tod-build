@@ -1,7 +1,7 @@
 # 🔐 Goodix TOD Builder for Debian 13 (Trixie)
 
 [![Debian](<https://img.shields.io/badge/Debian-13_(Trixie)-A81D33?logo=debian&logoColor=white>)](https://www.debian.org/) [![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/) [![Shell](https://img.shields.io/badge/shell-bash-4EAA25?logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/) [![Arch](https://img.shields.io/badge/arch-x86__64-informational)](#) [![License: Unlicense](https://img.shields.io/badge/license-Unlicense-blue.svg)](http://unlicense.org/)
-(#license) [![libfprint](https://img.shields.io/badge/libfprint-1.94.9%2Btod1-blue)](https://gitlab.freedesktop.org/libfprint/libfprint) [![Goodix 53xc](https://img.shields.io/badge/Goodix-53xc-success)](#support-matrix) [![Goodix 550a](https://img.shields.io/badge/Goodix-550a-success)](#support-matrix) [![GPG Verified](https://img.shields.io/badge/GPG-Verified-8A2BE2)](#gpg-verification)
+[![libfprint](https://img.shields.io/badge/libfprint-1.94.9%2Btod1-blue)](https://gitlab.freedesktop.org/libfprint/libfprint) [![Goodix 53xc](https://img.shields.io/badge/Goodix-53xc-success)](#support-matrix) [![Goodix 550a](https://img.shields.io/badge/Goodix-550a-success)](#support-matrix) [![GPG Verified](https://img.shields.io/badge/GPG-Verified-8A2BE2)](#gpg-verification)
 
 This repository provides a **containerized, reproducible** way to build and install **libfprint TOD** and the **Goodix plugin** on **Debian 13 (Trixie)** — keeping the host **clean and stable** (only `.deb` packages are produced and installed).
 
