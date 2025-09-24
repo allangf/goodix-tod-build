@@ -26,7 +26,7 @@ All builds happen inside Docker. On the host you only install the resulting `.de
 ## 🧭 Quickstart
 
 ```bash
-git clone <your-repo-url> goodix-tod-builder
+git clone https://github.com/allangf/goodix-tod-build.git goodix-tod-builder
 cd goodix-tod-builder
 
 # 1) Build inside Docker (outputs to ./out)
